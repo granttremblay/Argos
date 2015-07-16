@@ -1,0 +1,432 @@
+Project Script for Perseus:
+
+# Perseus: obsid - 4948,4949,4950,4951,4952,4953,6146
+
+# DS9 opening .img files
+
+###
+###  Done with the intention of streamlining the code and creating more organized directories for the work
+###
+
+
+# cd to the directory desired for work to commence
+
+cd SummerWork2015/Perseus_Test_1/
+
+
+###  Download Chandra Files  ###
+
+
+ciao
+download_chandra_obsid 4948,4949,4950,4951,4952,4953,6146
+
+
+###  Reduce data to lvl 2  ###
+
+
+# It is best to write this step out like so with all the obsid’s so that you can copy and paste all the steps into the terminal
+
+chandra_repro indir=4948 outdir=4948/repro verbose=5 cleanup=no 
+chandra_repro indir=4949 outdir=4949/repro verbose=5 cleanup=no 
+chandra_repro indir=4950 outdir=4950/repro verbose=5 cleanup=no
+chandra_repro indir=4951 outdir=4951/repro verbose=5 cleanup=no
+chandra_repro indir=4952 outdir=4952/repro verbose=5 cleanup=no
+chandra_repro indir=4953 outdir=4953/repro verbose=5 cleanup=no
+chandra_repro indir=6146 outdir=6146/repro verbose=5 cleanup=no
+
+
+###  Align observations to same WCS space  ###
+
+
+mkdir reprojected_data
+reproject_obs "*/repro/*evt2.fits" reprojected_data/ verbose=5
+
+
+###  Create exposure corrected merged mosaic  ###
+
+
+mkdir exposure_corrected_mosaic
+flux_obs "reprojected_data/*reproj_evt.fits" exposure_corrected_mosaic/ bands=broad,csc bin=1 verbose=5
+
+# My DS9 does not open .img files so I made a broad_flux.fits copy
+
+
+### Create Unsharp Mask  ###
+
+
+cd exposure_corrected_mosaic
+ds9 broad_flux.img
+
+# Create a box around the desired region with Region > Box
+
+punlearn dmcopy
+dmcopy "broad_flux.img[bin x=3840:4203:1, y=3885:4188:1]” broad_flux_cropped.img
+
+# The x and y coordinates are dependent on your created box, and are obtainable by mousing over the corners of the region and reading the physical coordinates
+# Smooth the image
+
+csmooth broad_flux_cropped.img clobber=yes
+
+# Do a number of smoothings
+
+dmimgcalc clobber=yes
+Input file #1 (): lightsmooth.fits
+Input file #2 (): heavysmooth.fits
+output file  (): unsharp.fits
+arithmetic operation (): SUB
+# Visually confirm best masking case (looking for cavity structure)
+
+###  Create circular regions around the target and around a background portion in DS9 and save those regions as cluster.reg and background.reg to /reprojected_data.  Make sure to save the regions in ciao format.  ###
+
+###  Create two .txt filename lists in /reprojected_data for the script to write files  ###
+
+# Can use any text editor, I used vim
+
+# Note: The list of obsid filenames must be in order of obsid number - e.g. (4000, 4100, 4200 etc.)
+
+cd /reprojected_data
+vim perseus_filenames.txt
+
+# Listed all the obsid’s separately by line (in order of obsid number) and added _efilter.fits to the end
+
+vim perseus_background_filenames.txt
+
+# Again, listed all the obsid’s line by line (in number order) and added _background.fits to the end
+
+
+###  Filter the reprojected files in energy space  ###
+
+
+punlearn dmcopy
+dmcopy "*reproj_evt.fits[energy=500:7000, ccd_id=7]” @filenames.txt opt=all clobber=yes
+
+# @filenames.txt is the list of ####_efilter.fits one
+# The energy (500:7000) is a filter used from HERC_A project, need to check if it still stands
+
+
+###  Extract background only light curve by excluding cluster and sources  ###
+
+
+dmcopy "*_efilter.fits[exclude sky=region(cluster.reg)]” @perseus_background_filenames.txt opt=all clobber=yes
+
+# Confirm the source has been removed from the picture (ds9 merged_evt.fits)
+
+
+###  Create light curves (plot with xQuartz) for all the obsid's  ###
+
+
+dmlist 4948_background.fits”[GTI7]” data
+
+# This produces the data list with the start and stop times that modify the infile  do this with all the oboist’s
+# For an obsid with multiple start and stop times use the start time from the first row and the stop time from the last row
+
+punlearn dmextract
+pset dmextract infile=“4948_background.fits[bin time=START TIME:STOP TIME:BIN COUNT (200 for all)]”
+pset dmextract outfile=4948_background.lc
+pset dmextract opt=ltc1
+dmextract clobber=yes
+
+# Note this is ltc”one”
+
+deflare 4948_background.lc 4948_bkg_deflare.gti method=clean plot=yes
+
+# To save the .gti plot, on the deflare command line enter save=“” and quote in the file name e.g. save=“4948_plot"
+
+# Now do this for the remaining obsid’s
+
+
+###  Filter the event lists for all of the obsid’s  ###
+
+
+dmcopy "4948_efilter.fits[@4948_bkg_deflare.gti]" 4948_reproj_clean.fits clobber=yes
+dmkeypar 4948_reproj_clean.fits EXPOSURE echo+
+
+# 118614.22755098   for 4948
+# 29384.643249998   for 4949
+# 87837.149479153   for 4950
+# 96123.954351807   for 4951
+# 164048.46584991   for 4952
+# 30079.0418065     for 4953
+# 47132.000580533   for 6146
+
+# These are the exposure lengths
+
+
+###  Blank Sky Backgrounds  ###
+
+
+# Continuing in /reprojected_data, we want to make a new directory to work on the blank sky backgrounds
+
+ciao
+cd /Users/Dominic/SummerWork2015/Perseus_Test_1
+mkdir blank_sky
+
+# We need to move some files over from /reprojected_data
+
+cd reprojected_data
+cp *reproj_clean.fits ~/SummerWork2015/Perseus_Test_1/blank_sky
+
+# This will copy all of the ####_reproj_clean.fits files to the blank sky folder (dependent on the user location)
+
+cd /blank_sky
+acis_bkgrnd_lookup 4948_reproj_clean.fits
+
+# This should return one background file (its path).  All of the other obsid’s should have the same background file; check this using acis_bkgrnd_lookup for all of the obsid's
+
+cp {Background file location from last step} {new file name}
+
+# The new file name is bkgevt2.fits
+# Status bit set to 1 (status bit 23). As no other status bits are set in the background files, it is simple to filter out these events.
+
+dmcopy "bkgevt2.fits[status=0]” bkgevt2_clean.fits
+
+# Make sure the GAINFILE for the background file and our science files is the same.  (For Perseus the gainfile is: acisD2000-01-29gain_ctiN0006.fits
+
+dmkeypar 4948_reproj_clean.fits GAINFILE echo+
+dmkeypar 4949_reproj_clean.fits GAINFILE echo+
+dmkeypar 4950_reproj_clean.fits GAINFILE echo+
+dmkeypar 4951_reproj_clean.fits GAINFILE echo+
+dmkeypar 4952_reproj_clean.fits GAINFILE echo+
+dmkeypar 4953_reproj_clean.fits GAINFILE echo+
+dmkeypar 6146_reproj_clean.fits GAINFILE echo+
+dmkeypar bkgevt2_clean.fits GAINFILE echo+
+
+# Add pointing header keywords to the background file.  First, we grab them from the science files.
+
+dmmakepar 4948_reproj_clean.fits 4948_event_header.par
+grep _pnt 4948_event_header.par > 4948_event_pnt.par
+# Do this for the other obsid’s.  You should have a folder full of ####_event_header.par and ####_event_pnt.par as well as what you created earlier when you list the directory
+
+# Clone the clean background file into separate versions, one for each science ObsID
+
+cp bkgevt2_clean.fits 4948_bkgevt2_notproj.fits
+cp bkgevt2_clean.fits 4949_bkgevt2_notproj.fits
+cp bkgevt2_clean.fits 4950_bkgevt2_notproj.fits
+cp bkgevt2_clean.fits 4951_bkgevt2_notproj.fits
+cp bkgevt2_clean.fits 4952_bkgevt2_notproj.fits
+cp bkgevt2_clean.fits 4953_bkgevt2_notproj.fits
+cp bkgevt2_clean.fits 6146_bkgevt2_notproj.fits
+
+# Make these clones writable
+
+chmod +w *_bkgevt2_notproj.fits
+
+# Migrate the pointing header keywords to the new clones (which still must be reprojected to the science files)
+
+dmreadpar 4948_event_pnt.par "4948_bkgevt2_notproj.fits[events]" clobber+
+dmreadpar 4949_event_pnt.par "4949_bkgevt2_notproj.fits[events]" clobber+
+dmreadpar 4950_event_pnt.par "4950_bkgevt2_notproj.fits[events]" clobber+
+dmreadpar 4951_event_pnt.par "4951_bkgevt2_notproj.fits[events]" clobber+
+dmreadpar 4952_event_pnt.par "4952_bkgevt2_notproj.fits[events]" clobber+
+dmreadpar 4953_event_pnt.par "4953_bkgevt2_notproj.fits[events]" clobber+
+dmreadpar 6146_event_pnt.par "6146_bkgevt2_notproj.fits[events]" clobber+
+
+# Reproject the background data to the science data.  Note that you must first copy the aspect solutions from the science files' repro/ directories into the working directory.  Go to each directory (4948/repro etc.) and copy all files with *asol* to the working directory.  As you do this make note of which obsid belongs to the file as we will use this later.
+
+cd /blank_sky
+cp ../../{obsID ####}/repro/*asol*.fits .
+
+# Note: the first argument of the copy command is the location of the asol file in the obsid/repro folder.  The period at the end of the command copies it to the current directory /repro_bkg.  You can use /../ etc. to navigate like with the cd command.
+
+# Now we need to preset retroject_events with infile / outfile / aspect etc.  The aspects for each set are different so pay attention to what you are setting.
+
+# 4948  -  aspect=pcadf213708142N003_asol1.fits
+# 4949  -  aspect=pcadf213932691N003_asol1.fits
+# 4950  -  aspect=pcadf213963199N003_asol1.fits
+# 4951  -  aspect=pcadf214384994N003_asol1.fits
+# 4952  -  aspect=pcadf214124222N003_asol1.fits
+# 4953  -  aspect=pcadf214482726N003_asol1.fits
+# 6146  -  aspect=pcadf214699341N003_asol1.fits
+
+# The full preset and run should go like this for all the obsID’s:
+
+punlearn reproject_events
+pset reproject_events infile=4948_bkgevt2_notproj.fits
+pset reproject_events outfile=4948_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf213708142N003_asol1.fits
+pset reproject_events match=4948_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+pset reproject_events infile=4949_bkgevt2_notproj.fits
+pset reproject_events outfile=4949_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf213932691N003_asol1.fits
+pset reproject_events match=4949_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+pset reproject_events infile=4950_bkgevt2_notproj.fits
+pset reproject_events outfile=4950_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf213963199N003_asol1.fits
+pset reproject_events match=4950_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+pset reproject_events infile=4951_bkgevt2_notproj.fits
+pset reproject_events outfile=4951_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf214384994N003_asol1.fits
+pset reproject_events match=4951_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+pset reproject_events infile=4952_bkgevt2_notproj.fits
+pset reproject_events outfile=4952_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf214124222N003_asol1.fits
+pset reproject_events match=4952_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+pset reproject_events infile=4953_bkgevt2_notproj.fits
+pset reproject_events outfile=4953_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf214482726N003_asol1.fits
+pset reproject_events match=4953_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+pset reproject_events infile=6146_bkgevt2_notproj.fits
+pset reproject_events outfile=6146_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf214699341N003_asol1.fits
+pset reproject_events match=6146_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+
+###  Contour binning  ###
+
+
+# Made a new containing work directory and copied merged_evt.fits to it. Open merged_evt.fits in DS9 and draw a box region around the cluster to get physical coordinates
+
+mkdir contbin_work
+cp ../reprojected_data/merged_evt.fits .
+ds9 merged_evt.fits
+dmcopy "merged_evt.fits[energy=500:7000][bin x=3745:4343:1, y=3704:4270:1]" contbin_input.fits
+
+# Save the region you boxed as the ciao file (contbin_mask.reg)
+
+# Install heasoft and latest version of gfortran.  Configure heasoft and then make.  Then make install.  Create alias for heasoft="source $HEADAS/headas-init.sh” and a path for HEADAS with wherever x86_64-apple-darwin14.3.0 file is located in heasoft e.g. export HEADAS=/Users//grant/Repository/heasoft/heasoft-6.16/x86_64-apple-darwin14.3.0
+
+heasoft
+farith contbin_input.fits 0 temp.fits MUL
+farith temp.fits 1 allones.fits ADD
+rm temp.fits
+dmcopy "allones.fits[sky=region(contbin_mask.reg)][opt full]" mask.fits
+rm allones.fits
+contbin --mask=mask.fits --sn=30 --smoothsn=3 --constrainfill --constrainval=2. contbin_input.fits
+
+# Check the box you made in contbin_mask.reg.  The minimum x and y values for the next stepcome from the box region you made
+
+mkdir region_sn30
+make_region_files --minx=3745 --miny=3704 --bin=1 --outdir=regions_sn30 contbin_binmap.fits
+
+
+###  Spectral Maps  ###
+
+
+# Make the region list
+
+cd regions_sn30
+ls -1 *.reg > base.txt
+
+# If there are too many .reg files you will not be able to copy as you will be above the safety limit.  Do this instead:
+
+find . -name “*reg” > base.txt
+
+sed -i '' 's/\.reg//g' ~/SummerWork2015/Perseus_Test_1/contbin_work/regions_sn30/base.txt
+sed -i '' 's/\.\///g' ~/SummerWork2015/Perseus_Test_1/contbin_work/regions_sn30/base.txt
+
+# The sed command removes the ./ from the beginning and the .reg from the end.  Mac runs with BSD sed and you need “” after the -i.  Also, the period and / are special characters and need to be preceded by a \
+
+# Get the file combine.awk, a short script Grant wrote.  It is on his Github.  Put it in the regions_sn30 folder
+
+awk -f combine.awk base.txt > region_list.txt
+
+# Start a new window and call Heasoft and CIAO in that order.  cd to the main parent folder for the work
+
+mkdir spectral_maps
+cd spectral_maps
+cp ../contbin_work/regions_sn30/base.txt .
+
+# /data should include a copy of the obsID folders (from the original chandra download) and “prepared_spectral_data” which includes the files:
+
+# ####_bkg_reproj_clean.fits in /blank_sky/
+# ####_reproj_clean.fits in /reprojected_data/
+# for all of the obsID numbers
+
+mkdir regions
+mkdir data
+cp -r ../4948 data/
+cp -r ../4949 data/
+cp -r ../4950 data/
+cp -r ../4951 data/
+cp -r ../4952 data/
+cp -r ../4953 data/
+cp -r ../6146 data/
+
+cd data/
+mkdir prepared_spectral_data
+cd prepared_spectral_data
+cp ../../../blank_sky/*reproj* .
+
+# /regions should include:
+# all of the xaf_###.reg files that were made earlier
+# combine.awk, contbin_mask.reg and region_list.txt
+# extract_contbin_spectra_HERCA.py
+
+cd ../../regions/
+cp ../../contbin_work/regions_sn30/combine.awk .
+cp ../../contbin_work/contbin_mask.reg .
+cp ../../contbin_work/regions_sn30/region_list.txt .
+find ~/SummerWork2015/Perseus_Test_1/contbin_work/regions_sn30 -name "*.reg" -exec cp {} . \;
+
+# The find command has to be used over the copy command if there are a lot of .reg files.  It works in the form:
+# find [location of files] -name “name of file” -exec cp {} [directory to copy to] \;
+
+# make sure you are in the /regions directory.  Get Grant’s script from his Github and put it in the regions directory
+
+# Open the script in sublime.  On line 216 you have to edit the obsID numbers to include those that you are about to analyze.  Also edit for the chip number below.
+
+python extract_contbin_spectra_HERCA.py (Directory specification for the spectral_maps/data/ folder)
+
+
+###  Xspec  ###
+
+
+# In the regions folder
+
+xspec
+
+# Go to NED Extragalactic and search for target name, find the redshift and N_H value.  Change to these values in the code of Grant’s .tcl file “fit_contbin_spectra.tcl"
+ (N_H value is in units of 10^22)
+
+# In xspec run Grant’s .tcl file
+
+@~/SummerWork2015/Spectral_Maps/regions/fit_contbin_spectra.tcl
+
+# Make sure that contbin_binmap.fits is in the region folder for the next step (originally in /contbinning_work)
+
+paint_output_images --binmap=contbin_binmap.fits
+
+# We have a bunch of maps now.  You can check for satisfaction
+# kT_out.fits = temperature map
+# Z_out.fits = abundance map 
+# Norm_out.fits = emission measure map (in units of cm^-5 arcsec^-2)
+
+# Make pseudo-pressure map: 
+# kT_out * Norm_out
+
+dmimgcalc kT_out.fits Norm_out.fits pseudoPressure_out.fits MUL
+
+# This pseudo-pressure map is in units of keV cm^-5 arcsec^-2
+
+# Now make a pseudo-entropy map:
+
+dmimgcalc Norm_out.fits none junk.fits op="imgout=(sqrt(img1)**-2)" clobber=yes
+dmimgcalc junk.fits none junk2.fits op="imgout=(img1**0.33333333)" clobber=yes
+dmimgcalc kT_out.fits junk2.fits pseudoEntropy_out.fits MUL
+rm junk.fits
+rm junk2.fits
+
+# This projected pseudo-Entropy map is in units of keV cm^(5/3) arcsec^(2/3)
+
+
+#####  END  #####

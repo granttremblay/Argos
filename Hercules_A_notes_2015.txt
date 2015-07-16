@@ -1,0 +1,358 @@
+Project Script for Hercules A:
+
+# Using CIAO
+
+###  Download Chandra Files  ###
+
+
+download_chandra_obsid 1625,5796,6257
+
+
+###  Reduce data to lvl 2  ###
+
+
+chandra_repro indir=1625 outdir=1625/repro verbose=5 cleanup=no 
+chandra_repro indir=5796 outdir=5796/repro verbose=5 cleanup=no 
+chandra_repro indir=6257 outdir=6257/repro verbose=5 cleanup=no
+
+
+###  Align observations to same WCS space  ###
+
+
+mkdir reprojected_data
+reproject_obs "*/repro/*evt2.fits" reprojected_data/ verbose=5
+
+
+###  Create exposure corrected merged mosaic  ###
+
+mkdir exposure_corrected_mosaic
+flux_obs "reprojected_data/*reproj_evt.fits" exposure_corrected_mosaic/ bands=broad,csc bin=1 verbose=5
+
+# Create an unsharp mask (refer to Notes)
+
+
+###  Create regions around cluster and a background region in DS9.  Save regions as cluster region and background region  ###
+
+
+###  Create a .txt filename list for the script to write files  ###
+
+
+###  Filter the reprojected files in energy space  ###
+
+
+punlearn dmcopy
+
+dmcopy "*reproj_evt.fits[energy=500:7000, ccd_id=7]” @filenames.txt opt=all clobber=yes
+
+
+###  Extract background only light curve by excluding cluster and sources  ###
+
+
+dmcopy “*_efilter.fits[exclude sky=region(cluster_self.reg)]” @background_filenames.txt opt=all clobber=yes
+
+# Confirm that the source has been removed from the picture
+
+
+###  Create light curves (rebooted and use xQuartz for plot)  ###
+
+
+dmlist 1625_background.fits"[GTI7]” data
+
+punlearn dmextract
+
+pset dmextract infile="1625_background.fits[bin time=START TIME:STOP TIME:100]”
+
+# note: input the start and stop times from the data printout that dmlist gives you
+pset dmextract outfile=1625_background.lc
+
+# outfile is the name of the produced file
+
+pset dmextract opt=ltc1
+
+# this is ltc”one”
+
+dmextract clobber=yes
+
+# Will display input event file and then output file name -> hit enter on both
+
+deflare 1625_background.lc 1625_background_deflare.gti method=clean plot=yes
+
+# deflare operation on the light curve file.  Produces a second .gti file of your naming (second argument)
+
+
+###  Create light curves for other obsid’s  ###
+
+# Data for 1625
+## ROW    START               		 	STOP
+
+##	1 	112475197.7002824396 		112490184.0800062567
+
+## bin size = 100 -> changed to 20 (too aggressive) -> tried 50 -> settled on 200 for all
+
+# Data for 5796
+
+## ROW    START                STOP
+ 
+##   1 232030987.5437210798 232057959.4224787951
+     2 232057962.5634939671 232079167.5450042188
+
+## bin size = 200
+
+# Data for 6257
+
+##  ROW    START                STOP
+ 
+##     1 233382191.3786146045 233432365.9231417775
+
+## bin size = 200
+
+
+###  Filter event lists for each obsid  ###
+
+dmcopy "1625_efilter.fits[@1625_background_deflare_200bin.gti]" 1625_reproj_clean.fits clobber=yes
+
+dmkeypar 1625_reproj_clean.fits EXPOSURE echo+
+
+# 13414.340803018 for 1625
+# 45334.259222742 for 5796
+# 46163.400667624 for 6257
+
+
+###  Blank sky backgrounds (needed to do for later python script that Grant wrote)  ###
+
+
+# Needed for extended sources (like the Herc A cluster) because the source fills most of the chip - we need to therefore use a provided "blank sky" for spectral background subtraction.  Make sure the full CALDB is installed.
+
+ciao
+acis_bkgrnd_lookup 1625_reproj_clean.fits
+
+# The _clean.fits file has only ACIS S3 (chip 7) included, so it only returns one background file.  Make a local copy of this file with:
+
+cp (directory of file [produced in the last step]) (new file name)
+
+# All three ObsIDs were taken in VFAINT mode (ACIS background cleaning has been done)
+# The period D background files are composed of VFAINT mode observations and have the "potential background event" 
+# status bit set to 1 (status bit 23). As no other status bits are set in the background files, it is simple to filter out these events:
+
+dmcopy "bgevt2.fits[status=0]” bgevt2_clean.fits
+
+# Make sure the GAINFILE for the background file and our science files is the same, all three show: acisD2000-01-29gain_ctiN0006.fits  (For HERC A)
+
+dmkeypar 1625_reproj_clean.fits GAINFILE echo+
+dmkeypar 5796_reproj_clean.fits GAINFILE echo+
+dmkeypar 6257_reproj_clean.fits GAINFILE echo+
+
+#dmkeypar for the background file should also read the same
+
+dmkeypar bgevt2_clean.fits GAINFILE echo+
+
+# Add pointing header keywords to the background file - first, we grab them from the science files.
+
+dmmakepar 1625_reproj_clean.fits 1625_event_header.par
+grep _pnt 1625_event_header.par > 1625_event_pnt.par
+
+# Do this for the other two
+
+# Clone the clean background file into three versions, one for each science ObsID
+
+cp bgevt2_s3_clean.fits 1625_bgevt2_s3_notprojected.fits
+cp bgevt2_s3_clean.fits 5796_bgevt2_s3_notprojected.fits
+cp bgevt2_s3_clean.fits 6257_bgevt2_s3_notprojected.fits
+
+# Make these clones writable
+
+chmod +w *_bgevt2_s3_notprojected.fits
+
+# Migrate the pointing header keywords to the new clones (which still must be reprojected to the science files ... done below)
+
+dmreadpar 1625_event_pnt.par "1625_bgevt2_s3_notprojected.fits[events]" clobber+
+dmreadpar 5796_event_pnt.par "5796_bgevt2_s3_notprojected.fits[events]" clobber+
+dmreadpar 6257_event_pnt.par "6257_bgevt2_s3_notprojected.fits[events]" clobber+
+
+# Finally, reproject the background data to the science data.  Note that you must first copy the aspect solutions from the science files' repro/ directories into the working directory.  Go to each directory (1625/repro etc.) and copy all files with *asol* to the working directory
+# Now we need to preset retroject_events with infile / outfile / aspect etc.  The aspects for each set are different so pay attention.
+
+# 1625  -  aspect=pcadf112474718N003_asol1.fits
+# 5796  -  aspect=pcadf232030985N002_asol1.fits
+# 6257  -  aspect=pcadf233382181N002_asol1.fits
+
+# The full preset and run should go like this for the three sets of data:
+
+punlearn reproject_events
+pset reproject_events infile=1625_bgevt2_s3_notprojected.fits
+pset reproject_events outfile=1625_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf112474718N003_asol1.fits
+pset reproject_events match=1625_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+punlearn reproject_events
+pset reproject_events infile=5796_bgevt2_s3_notprojected.fits
+pset reproject_events outfile=5796_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf232030985N002_asol1.fits
+pset reproject_events match=5796_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+punlearn reproject_events
+pset reproject_events infile=6257_bgevt2_s3_notprojected.fits
+pset reproject_events outfile=6257_bkg_reproj_clean.fits
+pset reproject_events aspect=pcadf233382181N002_asol1.fits
+pset reproject_events match=6257_reproj_clean.fits
+pset reproject_events random=0
+reproject_events verbose=5 clobber=yes
+
+# Consider making a directory to store all the important files that have been made
+
+
+###  Image processing  ###
+
+
+###  Was checking for thermal emission in the jet and point sources: none found.  Skip to below  ###
+
+# Crop flux mosaics
+
+dmcopy "broad_flux.img[bin x=3690:4350:1,y=3740:4360:1]" HercA_fluxed_broad.fits clobber=yes
+dmcopy "soft_flux.img[bin x=3690:4350:1,y=3740:4360:1]" HercA_fluxed_soft.fits clobber=yes
+dmcopy "medium_flux.img[bin x=3690:4350:1,y=3740:4360:1]" HercA_fluxed_medium.fits clobber=yes
+dmcopy "hard_flux.img[bin x=3690:4350:1,y=3740:4360:1]" HercA_fluxed_hard.fits clobber=yes
+
+dmcopy "1625_bkg_reproj_clean.fits[bin x=3690:4351:1,y=3740:4361:1]" bkg_image.fits clobber=yes
+
+# Smooth the HercA_fluxed_soft.fits to an elliptical model (e.g. with a huge smoothing length like 30)
+# Then scale (with dmimgcalc) the smoothed model to roughly the brightness of the broad 0.5-7 keV map (factor of ~43)
+csmooth HercA_fluxed_soft.fits clobber=yes
+# use 30,30 for max and min
+
+
+### Resume here: unfinished above (image processing was for other paper) ###
+
+
+###  Contour binning  ###
+
+
+# Installed contbin and cfitsio (using macports)
+# contbin proved troublesome to install.
+
+
+###  Contbin installion fixing  ###
+
+
+# Make sure to install latest version using git clone command from Sanders contain repository (make sure it is the latest one, not the 2010 version on the front page
+# Make sure command line tools is installed
+# Configure cfitsio with ./configure //prefix=/usr
+
+# Made a containing work folder and copied merged_evt.fits to it. Open merged_evt.fits in DS9 and draw a box region around the cluster to get physical coordinates
+
+dmcopy "merged_evt.fits[energy=500:7000][bin x=3861:4184:1, y=3907:4175:1]” contbin_input.fits
+
+# Save the region you boxed as a ciao file (.reg)
+
+# Install heasoft and latest version of gfortran.  Configure heasoft and then make.  Then make install.  Create alias for heasoft=="source $HEADAS/headas-init.sh” and a path for HEADAS with wherever x86_64-apple-darwin14.3.0 file is located in heasoft
+
+export HEADAS=/Users//grant/Repository/heasoft/heasoft-6.16/x86_64-apple-darwin14.3.0
+
+# Check it works
+
+xspec
+exit
+
+# Now
+
+farith contbin_input.fits 0 temp.fits MUL
+farith temp.fits 1 allones.fits ADD
+rm temp.fits
+dmcopy "allones.fits[sky=region(contbin_mask.reg)][opt full]" mask.fits
+rm allones.fits
+contbin --mask=mask.fits --sn=30 --smoothsn=3 --constrainfill --constrainval=2. contbin_input.fits
+
+# Check for satisfaction
+
+make_region_files --minx=3861 --miny=3907 --bin=1 --outdir=regions_sn30 contbin_binmap.fits
+
+# Check contain_binmap.fits  The minimum x and y  values come from the box region you made
+
+contbin --sn=30 --smoothsn=10 --constrainfill --constrainval=3.0 contbin_input.fits
+make_region_files --minx=3690 --miny=3740 --bin=1 contbin_binmap.fits
+
+# There are now a large bunch of .reg files
+
+cp *.reg
+
+# Copy the .reg files to a new directory for cleanup and to run further steps
+
+
+###  Spectral Maps  ###
+
+
+# Make the region list
+
+ls -1 *.reg > base.txt
+
+# Open base.txt in vim (or whatever), and search and replace ".reg" with blank (e.g. delete it) all lines should read xaf_###
+
+awk -f combine.awk base.txt > region_list.txt
+
+# Need to have file combine.awk, a short script Grant wrote
+# Start a new window and call Heasoft and CIAO in that order
+
+# The directory specification for the python script should lead to a folder (I called it Spectral_Maps - e.g. /Users/Dominic/SummerWork2015/Spectral_Maps/data/) with the subfolders “data” and “regions”
+# ”data” should include a copy of the folders “1625” “5796” “6257” (from original chandra download) and “prepared_spectral_data” which includes:
+
+# 1625_bkg_reproj_clean.fits
+# 5796_reproj_clean.fits
+# 1625_reproj_clean.fits
+# 6257_bkg_reproj_clean.fits
+# 5796_bkg_reproj_clean.fits
+# 6257_reproj_clean.fits
+
+# “regions” should include:
+
+# all of the xaf_###.reg files that were made earlier
+# combine.awk, contbin_mask.reg and region_list.txt
+# extract_contbin_spectra_HERCA.py
+
+# cd to /regions directory
+
+python extract_contbin_spectra_HERCA.py (Directory specification)
+
+# Make sure you have PyFits installed into CIAO
+# Open Xspec
+
+xspec
+
+# Go to NED Extragalactic and search for target name, find the redshift and N_H value.  Change to these values in the code of Grant’s .tcl file “fit_contbin_spectra.tcl"
+ (N_H value is in units of 10^22)
+
+# In xspec run Grant’s .tcl file
+
+@~/SummerWork2015/Spectral_Maps/regions/fit_contbin_spectra.tcl
+
+# Make sure that contbin_binmap.fits is in the region folder for the next step (originally in /contbinning_work)
+
+paint_output_images --binmap=contbin_binmap.fits
+
+# We have a bunch of maps now.  You can check for satisfaction
+# kT_out.fits = temperature map
+# Z_out.fits = abundance map 
+# Norm_out.fits = emission measure map (in units of cm^-5 arcsec^-2)
+
+# Make pseudo-pressure map: 
+# kT_out * Norm_out
+
+dmimgcalc kT_out.fits Norm_out.fits pseudoPressure_out.fits MUL
+
+# This pseudo-pressure map is in units of (in units of keV cm^-5 arcsec^-2)
+
+# Now make a pseudo-entropy map:
+
+dmimgcalc Norm_out.fits none junk.fits op="imgout=(sqrt(img1)**-2)" clobber=yes
+dmimgcalc junk.fits none junk2.fits op="imgout=(img1**0.33333333)" clobber=yes
+dmimgcalc kT_out.fits junk2.fits pseudoEntropy_out.fits MUL
+rm junk.fits
+rm junk2.fits
+
+# This projected pseudo-Entropy map is in units of keV cm^(5/3) arcsec^(2/3)
+
+
+#####  END  #####

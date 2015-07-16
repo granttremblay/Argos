@@ -1,0 +1,21 @@
+Unsharp Mask
+
+Crop the exposure corrected mosaic
+
+dmcopy "broad_flux.img[bin x=3840:4203:1, y=3885:4188:1]” broad_flux_cropped.img
+
+Smooth the image (light / medium / heavy)
+csmooth broad_flux_cropped.img clobber=yes
+
+Visually confirm smoothing
+
+Create mask
+
+dmimgcalc clobber=yes
+
+Input file #1 (): lightsmooth.fits
+Input file #2 (): heavysmooth.fits
+output file  (): unsharp.fits
+arithmetic operation (): SUB
+
+Visually confirm best masking case (looking for cavity structure)
