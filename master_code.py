@@ -8,9 +8,9 @@
 ##### By Dominic Eggerman and Grant Trembley #####
  #####									    #####
 
-##########################################################
-### Remember to launch CIAO before initiating the code ###
-##########################################################
+######################################################################################
+### Remember to launch Heasoft and CIAO (in that order) before initiating the code ###
+######################################################################################
 
 
 # I am replacing most of the CIAO code with print statements for now, later find and replace print with os.system.
@@ -28,6 +28,8 @@ import subprocess
 import os.path
 
 ###		###		###		###		###
+
+# Check if ciao, heasoft, and contbin are installed ??? #
 
  ###					  				  ###
 ### Directory creation and obsID selection ###
@@ -145,44 +147,52 @@ lvl2_data(quoted_list)
 
 ###		###		###		###		###
 
-#########################################################################
+ ###																						 ###
+### Aligning observations to the same WCS space and creating exposure corrected merged mosaic ###
+ ###																						 ###
 
-# Aligning observations to the same WCS space and creating exposure corrected merged mosaic
+# Align observations to the same WCS space.  Create directories and open broad_flux.fits #
 
 def WCS():
 
-	os.system("mkdir reprojected_data")
+	print "os.system('mkdir reprojected_data')"
 	print "reproject_obs '*/repro/*evt2.fits' reprojected_data/ verbose=5"
-	os.system("mkdir exposure_corrected_mosaic")
+	print "os.system('mkdir exposure_corrected_mosaic')"
 	print "flux_obs 'reprojected_data/*reproj_evt.fits' exposure_corrected_mosaic/ bands=broad,csc bin=1 verbose=5"
+	print "os.chdir('exposure_corrected_mosaic')"
+	print "os.system('cp broad_flux.img broad_flux.fits')" # Copies broad_flux.img to broad_flux.fits so I can view it in my DS9
+	print "os.chdir('../reprojected_data')"
+	print "ds9 broad_flux.fits"  # Opens broad_flux.fits in DS9 for making regions
 
-# Opening broad_flux.img and waiting for the .reg files to be saved.
+# Waiting for the .region files to be saved #
 
 def deep_space_9():
-
-	os.chdir("exposure_corrected_mosaic")
-	print "ds9 broad_flux.img"  # Opens broad_flux.img in DS9 for making regions
-	print "Create circular regions around the target and around a background portion of the image in DS9.  Save the target region as cluster.reg and the background region as background.reg.  Save both in /reprojected_data.  Make sure to save the regions in ciao format."
+	
+	print "Create circular regions around the target and around a background portion of the image in DS9.  Save the target region as cluster.reg and the background region as background.reg.  Save both in /reprojected_data/.  Make sure to save the regions in ciao format."
 	raw_input("Press Enter to continue when the files have been saved...") # Allows a pause while the user creates the files
-	os.chdir("../reprojected_data")
+	reg_file_check()
+	
+# Checks reprojected_data/ for the .region files #
 
-def file_checker(): # Checks for the .reg files, only runs twice as of now
+def reg_file_check():
 
-	for fil in glob.glob("*.reg"):
-		print "The files have been found"
-		break
+	if os.path.exists("../cluster.reg") == True:
+		print "The file cluster.reg has been found"
 	else:
-		print "Please create cluster.reg and background.reg in DS9"
-		raw_input("Press Enter to continue when the files have been saved...")
-		reg_files
+		print "Please create cluster.reg in DS9 (save as ciao file)"
+		deep_space_9()
+	if os.path.exists("../background.reg") == True:
+		print "The file background.reg has been found"
+	else:
+		print "Please create background.reg in DS9 (save as ciao file)"
+		deep_space_9()
 
 # Function activators 2 #
 
-file_checker()
+WCS()
+deep_space_9()
 
 ###		###		###		###		###
-
-###############################################################
 
 # Sort quoted list, ordered_list is the new master list #
 
@@ -197,10 +207,11 @@ ordered_list = sorted(quoted_list, key=lambda x: float(x))
 def espace_filt(data):
 
 	print "punlearn dmcopy"
-	nrgy = raw_input("Input energy filter values like so --> min:max : ") # Allows specification of energy filter
+	nrgy1 = raw_input("Input minimum energy filter value: ") # Allows specification of energy filter
+	nrgy2 = raw_input("Input maximum energy filter value: ")
 	ccd = raw_input("Input ccd_id: ") # Allows input of ccd_id
 	for obs in data:
-		print "dmcopy '%s_reproj_evt.fits[energy=%s, ccd_id=%s]' %s_efilter.fits opt=all clobber=yes" % (obs, nrgy, ccd, obs)
+		print "dmcopy '%s_reproj_evt.fits[energy=%s:%s, ccd_id=%s]' %s_efilter.fits opt=all clobber=yes" % (obs, nrgy1, nrgy2, ccd, obs)
 
 # Excluding cluster from the background #
 
@@ -231,7 +242,9 @@ def flare_checker():
 	for decision in choice:
 		if choice == "yes":
 			break
-		elif choice == "no": # Loops infinitly if you keep hitting "no" until a desired bin is found
+		elif choice == "no": # Loops infinitly if you keep hitting "no" until a desired bin is found.
+			print "os.system('rm *_bkg_deflare.gti')"
+			print "os.system('rm *_background.lc')"
 			extract_flare(ordered_list)
 			break
 		else:
@@ -314,7 +327,7 @@ aspect_sol(ordered_list)
 
 ###############################################################################################
 
-# Needs edits (mainly checks)
+# This sequence may need more testing ??
 
  ###			   ###
 ### Contour Binning ###
@@ -327,29 +340,107 @@ def contbin_dir():
 	print "os.chdir('../')"
 	print "mkdir contbin"
 	print "os.chdir('contbin')"
-	print "cp ../reprojected_data/merged_evt.fits ." # Copies merged-evt.fits over from reprojected_data
-	print "ds9 merged_evt.fits" # Opens mergeed_evt.fits in ds9
-	print "Make a box region around the target to obtain the x and y coordinates to input..."
+	print "cp ../reprojected_data/merged_evt.fits ." # Copies merged-evt.fits over from reprojected_data to the current folder
+	print "ds9 merged_evt.fits" # Opens merged_evt.fits in ds9
+	print "Make a box region around the target to obtain the x and y coordinates to input (physical coordinates in ds9)..."
 
-min_vals = []
+# Define coordinate boundaries #
 
-# Creating the region for contbinning work #
+min_values = []
+energy_li = []
 
-def reg_creation():
+def coordinate_inp():
 
 	xmin = raw_input("Input the minimum x coordinate (physical): ")
 	xmax = raw_input("Input the maximum x coordinate (physical): ")
 	ymin = raw_input("Input the minimum y coordinate (physical): ")
 	ymax = raw_input("Input the maximum y coordinate (physical): ")
-	min_vals.append(xmin)
-	min_vals.append(ymin)
-	return min_vals
-	# Put something here to prevent bad inputs
-	nrgy = raw_input("Input energy filter values like so --> min:max : ")
-	# Maybe add raw_input checker
-	print "dmcopy 'merged_evt.fits[energy=%s][bin x=%s:1, y=%s:1]' contbin_input.fits" % (nrgy, xminmax, yminmax)
-	raw_input("Now save the region you created as contbin_mask.reg (ciao format).  Make sure to save it in the contbin folder in this projects parent directory (Press enter to continue)")
-	# Need file checker before proceeding
+	min_values.extend([xmin, xmax, ymin, ymax]) # Adds all of the entered values to the list
+	minmax_check(min_values)
+	return min_values
+
+# Check the min / max values #
+
+def minmax_check(value): # This keeps looping after reentering the values
+
+	for val in value:
+		if value[0] < value[1]: # Checks if the max / min values have been correctly entered
+			pass
+		else:
+			print "The min / max values were entered incorrectly, please enter them again"
+			del min_values[:]
+			coordinate_inp()
+			break
+		if value[2] < value[3]:
+			pass
+		else:
+			print "The min / max physical coordinate values were entered incorrectly, please enter them again"
+			del min_values[:]
+			coordinate_inp()
+			break
+
+# Define energy boundaries #
+
+def energy_inp():
+
+	nrgy1 = raw_input("Input minimum energy filter value: ")
+	nrgy2 = raw_input("Input maximum energy filter value: ")
+	energy_li.extend([nrgy1, nrgy2])
+	nrgy_check(energy_li)
+	return energy_li
+
+# Checks the energy input values #
+
+def nrgy_check(value):
+
+	for val in value:
+		if value[0] < value[1]:
+			pass
+		else:
+			print "The min / max energy filter values were entered incorrectly, please enter them again"
+			del energy_li[:]
+			energy_inp()
+			break
+
+# Creating the region for contbinning work #
+
+def reg_creator(energy, values):
+
+	raw = energy + values
+	minmaxnrgy_check(energy_li, min_values)
+	print "dmcopy 'merged_evt.fits[energy=%s:%s][bin x=%s:%s:1, y=%s:%s:1]' contbin_input.fits clobber=yes" % tuple(raw)
+	raw_input("Now save the region you created as contbin_mask.reg (ciao format).  Make sure to save it in the contbin folder in this project's parent directory (Press enter to continue)")
+
+# Asks if inputs are good #
+
+def minmaxnrgy_check(energy, values):
+
+	raw = energy + values
+	print "min_energy:%s max_energy:%s min_x:%s max_x:%s min_y:%s max_y:%s" % tuple(raw)
+	choice = raw_input("Are these the values you wanted? (yes/no): ")
+	for decision in choice:
+		if choice == "yes":
+			break
+		elif choice == "no":
+			del min_values[:]
+			del energy_li[:]
+			coordinate_inp() # Goes back to coordinate_inp() function
+			energy_inp()
+			reg_creator(energy_li, min_values)
+			break
+		else:
+			choice = raw_input("Enter yes or no: ")
+
+# Checks for contbin_mask.reg #
+
+def contbinmask_file_check(): # Checks for the .reg files, only runs twice as of now
+
+	if os.path.exists("contbin_mask.reg") == True:
+		print "The file has been found"
+	else:
+		print "Please create contbin_mask.reg in DS9 (save as ciao file to the contbin folder in the project directory)"
+		raw_input("Press enter once the file has been made...")
+		contbinmask_file_check()
 
 # Farith step and preparation to make region files #
 
@@ -370,16 +461,19 @@ def farith():
 def regions_sn30(values):
 
 	print "mkdir regions_sn30"
-	x = values[0] # Takes the elements from the min_val list to put in the final step
-	y = values[1]
+	x = min_values[0] # Takes the elements from the min_val list to put in the final step
+	y = min_values[2]
 	print "make_region_files --minx=%s --miny=%s --bin=1 --outdir=regions_sn30 contbin_binmap.fits" % (x, y)
 
 # Function activators 5 #
 
 contbin_dir()
-reg_creation()
+coordinate_inp()
+energy_inp()
+reg_creator(energy_li, min_values)
+contbinmask_file_check()
 farith()
-regions_sn30(min_vals)
+regions_sn30(min_values)
 
 ###		###		###		###		###
 
