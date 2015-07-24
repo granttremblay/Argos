@@ -25,7 +25,6 @@ import sys
 import glob
 import pyfits
 import subprocess
-import os.path
 
 ###		###		###		###		###
 
@@ -214,6 +213,17 @@ def espace_filt(data): # Ask if the values are good for the user ??
 	nrgy1 = raw_input("Input minimum energy filter value: ") # Allows specification of energy filter
 	nrgy2 = raw_input("Input maximum energy filter value: ")
 	ccd = raw_input("Input ccd_id: ") # Allows input of ccd_id
+	choice = raw_input("Are these the values you wanted? (yes/no): ")
+	for decision in choice:
+		if choice == "yes":
+			break
+		elif choice == "no":
+			del nrgy1
+			del nrgy2
+			espace_filt(ordered_list)
+			break
+		else:
+			choice = raw_input("Enter yes or no: ")
 	for obs in data:
 		os.system("dmcopy '%s_reproj_evt.fits[energy=%s:%s, ccd_id=%s]' %s_efilter.fits opt=all clobber=yes" % (obs, nrgy1, nrgy2, ccd, obs))
 

@@ -7,7 +7,6 @@ import sys
 import glob
 import pyfits
 import subprocess
-import os.path
 from astropy.io import fits
 
 obsID_li = []
@@ -26,9 +25,9 @@ def obsID_selection():
 			return obsID_li
 			break
 
-quoted_list = obsID_selection()
-ordered_list = sorted(quoted_list, key=lambda x: float(x))
-print ordered_list
+#quoted_list = obsID_selection()
+#ordered_list = sorted(quoted_list, key=lambda x: float(x))
+#print ordered_list
 
 ##################
 ### New Things ###
