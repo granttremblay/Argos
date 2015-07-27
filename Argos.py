@@ -12,8 +12,7 @@
 ### Remember to launch Heasoft and CIAO (in that order) before initiating the code ###
 ######################################################################################
 
-
-# I am replacing most of the CIAO code with print statements for now, later find and replace print with os.system.
+### Changed CIAO's python path to use Anaconda's python ###
 
  ###	   ###
 ### Imports ###
@@ -25,6 +24,7 @@ import sys
 import glob
 import pyfits
 import subprocess
+from astropy.io import fits
 
 ###		###		###		###		###
 
@@ -36,11 +36,8 @@ import subprocess
 
 # Master directory creation #
 
-directory = []
-
 def mkdir():
-	direct = raw_input("Enter directory for work (ommit the last backslash '/') (e.g. ~/User/newobject): ")
-	directory.append(direct)
+	direct = raw_input("Enter directory for work (ommit the last backslash '/' and do not use ~, use /Users/usr/etc.) (e.g. /Users/usr/Project/target): ")
 	os.system("mkdir "+direct)
 	os.chdir(direct)
 
@@ -205,14 +202,27 @@ deep_space_9()
 ### Filtering the reprojected files in energy space and extracting background only lightcurve by excluding cluster and sources ###
  ###																														  ###
 
+# Finding the ccd_id from file header #
+
+ccd_id = []
+
+def ccd_id_finder():
+
+	os.chdir("../exposure_corrected_mosaic")
+	ccdlist = fits.open("broad_flux.fits")
+	ccd = ccdlist[0].header # Primary header
+	ID = ccd["CCD_ID"] # Get value of keyword 'CCD_ID', the ccd_id time of the observation
+	ccd_id.append(ID)
+	os.chdir("../reprojected_data")
+	return ccd_id
+
 # Filtering the files in energy space #
 
-def espace_filt(data): # Ask if the values are good for the user ??
+def espace_filt(data, ccd):
 
 	os.system("punlearn dmcopy")
 	nrgy1 = raw_input("Input minimum energy filter value: ") # Allows specification of energy filter
 	nrgy2 = raw_input("Input maximum energy filter value: ")
-	ccd = raw_input("Input ccd_id: ") # Allows input of ccd_id
 	choice = raw_input("Are these the values you wanted? (yes/no): ")
 	for decision in choice:
 		if choice == "yes":
@@ -225,7 +235,8 @@ def espace_filt(data): # Ask if the values are good for the user ??
 		else:
 			choice = raw_input("Enter yes or no: ")
 	for obs in data:
-		os.system("dmcopy '%s_reproj_evt.fits[energy=%s:%s, ccd_id=%s]' %s_efilter.fits opt=all clobber=yes" % (obs, nrgy1, nrgy2, ccd, obs))
+		ccd_id = ccd[0]
+		os.system("dmcopy '%s_reproj_evt.fits[energy=%s:%s, ccd_id=%s]' %s_efilter.fits opt=all clobber=yes" % (obs, nrgy1, nrgy2, ccd_id, obs))
 
 # Excluding cluster from the background #
 
@@ -234,15 +245,33 @@ def bkg_lightcurve(data):
 	for obs in data:
 		os.system("dmcopy '%s_efilter.fits[exclude sky=region(cluster.reg)]' %s_background.fits opt=all clobber=yes" % (obs, obs))
 
-# Listing data to find the start and stop times #
-# Needs to be automated
+# Finding the start and stop times from file header #
 
-def extract_flare(data):
+times = []
+
+def time_finder(ccd):
+
+	timelist = fits.open("4945_background.fits")
+	ID = ccd[0]
+	for num in range(2, 10):
+		tim = timelist[num].header
+		if tim["CCD_ID"] == ID:
+			starttime = tim["TSTART"] # Get value of keyword 'TSTART', the start time of the observation ??
+			stoptime = tim["TSTOP"] # Get value of keyword 'TSTOP', the start time of the observation
+			times.extend([starttime, stoptime])
+			return times
+			break
+		else:
+			continue
+
+# Deflaring #
+
+def extract_flare(data, time):
 
 	for obs in data: # Cycles through obsID's
-		os.system("dmlist %s_background.fits'[GTI7]' data" % obs)
-		start = raw_input("Copy and paste the START time from the table: ")
-		stop = raw_input("Copy and paste the STOP time from the table: ")
+		time_bin = []
+		start = time[0]
+		stop = time[1]
 		bin = raw_input("Input bin length (usually 200): ")
 		os.system("punlearn dmextract")
 		os.system("dmextract infile=%s_background.fits'[bin time=%s:%s:%s]' outfile=%s_background.lc opt=ltc1 clobber=yes" % (obs, start, stop, bin, obs))
@@ -274,9 +303,11 @@ def evt_list_filt(data):
 
 # Function activators 3 #
 
-espace_filt(ordered_list)
+ccd_id_finder()
+espace_filt(ordered_list, ccd_id)
 bkg_lightcurve(ordered_list)
-extract_flare(ordered_list)
+time_finder(ccd_id)
+extract_flare(ordered_list, times)
 evt_list_filt(ordered_list)
 
 ###		###		###		###		###
@@ -324,8 +355,8 @@ def aspect_sol(ID):
 
 	for obs in ID:
 		os.system("punlearn reproject_events")
-		asp_file = [os.path.basename(x) for x in glob.glob('../%s/repro/*pcad*asol*' % obs)]
-		aspect = asp_file[0]
+		asp_file = [os.path.basename(x) for x in glob.glob('../%s/repro/*pcad*asol*' % obs)] # Captures only the basename of the file in the path and adds it in a list
+		aspect = asp_file[0] # Assigns the file to a variable
 		os.system("cp ../%s/repro/*asol*.fits ." % obs)
 		os.system("reproject_events infile=%s_bkgevt2_notproj.fits outfile=%s_bkg_reproj_clean.fits aspect=%s match=%s_reproj_clean.fits random=0 verbose=5 clobber=yes" % (obs, obs, aspect, obs))
 		del asp_file
@@ -357,7 +388,7 @@ def contbin_dir():
 	os.chdir('contbin')
 	os.system("cp ../reprojected_data/merged_evt.fits .") # Copies merged-evt.fits over from reprojected_data to the current folder
 	print "Make a box region around the target to obtain the x and y coordinates to input (physical coordinates in ds9)..."
-	print "Make sure to save the region as contbin_mask.reg (ciao format) in the contbin folder in this project's parent directory"
+	print "For now, write these coordinates down. Make sure to save the region as contbin_mask.reg (ciao format) in the contbin folder in this project's parent directory"
 	os.system("ds9 merged_evt.fits") # Opens merged_evt.fits in ds9
 	
 # Define coordinate boundaries #
@@ -506,7 +537,7 @@ def region_list():
 	os.chdir('regions_sn30/')
 	os.system("find . -name '*reg' > base.txt")
 	for path in directory: # Edits here ??
-		os.system("sed -i '' 's/\.reg//g' %s/contbin/regions_sn30/base.txt" % path) # This syntax for sed works with basic MAC sed (BSD)
+		os.system("sed -i '' 's/\.reg//g' %s/contbin/regions_sn30/base.txt" % path) # Maybe add . instead of the path?. This syntax for sed works with basic MAC sed (BSD)
 		os.system("sed -i '' 's/\.\///g' %s/contbin/regions_sn30/base.txt" % path) # Removes the . / and .reg from the file names
 
 # Create and prepare the spectral maps directory #
