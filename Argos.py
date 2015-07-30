@@ -25,6 +25,7 @@ import glob
 import pyfits
 import subprocess
 from astropy.io import fits
+from script_imports import extract_contbin_spectra_ARGOS as extract
 
 ###		###		###		###		###
 
@@ -36,10 +37,19 @@ from astropy.io import fits
 
 # Master directory creation #
 
+directory = []
+
 def mkdir():
+
 	direct = raw_input("Enter directory for work (ommit the last backslash '/' and do not use ~, use /Users/usr/etc.) (e.g. /Users/usr/Project/target): ")
-	os.system("mkdir "+direct)
-	os.chdir(direct)
+	make = os.system("mkdir "+direct)
+	if os.path.exists(direct):
+		os.chdir(direct)
+		directory.append(direct)
+	else:
+		del direct
+		del make
+		mkdir()
 
 # Loop for finding obsID's #
 
@@ -322,7 +332,6 @@ def bsky_organiser():
 
 	os.chdir('../')
 	os.system('mkdir blank_sky')
-	path = subprocess.check_output('pwd')
 	os.system('cp reprojected_data/*reproj_clean.fits blank_sky') # This will copy all of the ####_reproj_clean.fits files to the blank sky folder
 	os.chdir('blank_sky/')
 
@@ -370,10 +379,6 @@ evt2_pointer(ordered_list)
 aspect_sol(ordered_list)
 
 ###		###		###		###		###
-
-###############################################################################################
-
-# This sequence may need more testing ??
 
  ###			   ###
 ### Contour Binning ###
@@ -510,6 +515,16 @@ def regions_sn30(values):
 	y = min_values[2]
 	os.system("make_region_files --minx=%s --miny=%s --bin=1 --outdir=regions_sn30 contbin_binmap.fits" % (x, y))
 
+# Making the region lists in base.txt #
+
+def region_list(direct):
+
+	os.chdir('regions_sn30')
+	os.system("find . -name '*reg' > base.txt")
+	for path in direct:
+		os.system("sed -i '' 's/\.reg//g' %s/contbin/regions_sn30/base.txt" % path) # This syntax for sed works with basic MAC sed (BSD)
+		os.system("sed -i '' 's/\.\///g' %s/contbin/regions_sn30/base.txt" % path) # Removes the . / and .reg from the file names
+
 # Function activators 5 #
 
 contbin_dir()
@@ -519,6 +534,7 @@ reg_creator(energy_li, min_values)
 contbinmask_file_check()
 farith()
 regions_sn30(min_values)
+region_list(directory)
 
 ###		###		###		###		###
 
@@ -529,16 +545,6 @@ regions_sn30(min_values)
  ###			 ###
 
 # Needs edits before running ?? #
-
-# Making the region list #
-
-def region_list():
-
-	os.chdir('regions_sn30/')
-	os.system("find . -name '*reg' > base.txt")
-	for path in directory: # Edits here ??
-		os.system("sed -i '' 's/\.reg//g' %s/contbin/regions_sn30/base.txt" % path) # Maybe add . instead of the path?. This syntax for sed works with basic MAC sed (BSD)
-		os.system("sed -i '' 's/\.\///g' %s/contbin/regions_sn30/base.txt" % path) # Removes the . / and .reg from the file names
 
 # Create and prepare the spectral maps directory #
 
@@ -555,33 +561,72 @@ def data_create(ID):
 
 	os.system('mkdir data')
 	os.system('mkdir data/prepared_spectral_data')
-	for obs in ID: # Copies the #### folders from the parent folder to data
-		os.system('cp -r ../%s data/' % obs)
-	os.system('cp ../blank_sky/*reproj* data/prepared_spectral_data') # Copies the ####_reproj_clean.fits and ####_bkg_reproj_clean.fits
+	for obs in ID: # Copies the obsID folders from the parent folder to data/
+		os.system('cp -r ../%s ./data' % obs)
+	os.system('cp ../blank_sky/*reproj* ./data/prepared_spectral_data') # Copies the ####_reproj_clean.fits and ####_bkg_reproj_clean.fits to the prepared_spectral_data folder.
 
-def regions_create(): # Prepares the regions folder for extract_contbin_spectra.py
+# Prepares the regions folder for extract_contbin_spectra.py #
+
+def regions_create(directory):
 
 	os.system('mkdir regions')
-	os.system('cp ../contbin/regions_sn30/combine.awk regions/')
-	os.system('cp ../contbin/contbin_mask.reg regions/')
-	os.system('cp ../contbin/regions_sn30/regions_list.txt regions/')
-	os.chdir('regions/')
-	os.system("find ../contbin/regions_sn30/ -name '*.reg' -exec cp {} . \;") # Finds and copies all of the .reg files (uses find incase there are many)
-	print "download Grant's code from github"
+	reg_list_write() # Passes to the file writer below
+	os.system("cp ../../contbin/contbin_mask.reg .")
+	for path in directory:
+		os.system("find %s/contbin/regions_sn30 -name '*.reg' -exec cp {} . \;" % path) # Finds and copies all of the xaf_###.reg files to regions/ (uses find incase there are many)
 
-### Run extract_contbin_spectra.py
+# Writes the region_list.txt file #
+
+def reg_list_write():
+
+	with open ("base.txt", "r") as names:
+		int_list = names.readlines() # Gets all of the xaf_###/n names from base.txt and assigns them to a list
+	xaf = []
+	for item in int_list:
+		xaf_item = item[:-1] # Gets rid of the /n from the xaf_### names
+		xaf.append(xaf_item)
+	os.chdir("regions")
+	combine = open("region_list.txt", "a") # Makes the file region_list.txt
+	for x in xaf:
+		combine.write("%s %s_sumc7_spec.pi\n" % (x, x)) # Writes the file with the xaf_### names and the ending that was previously done with combine.awk
+	combine.close()
+
+# Run extract_contbin_spectra.py #
+
+def extract_spectra(direct, obs, ccd):
+
+	# Set "path" equal to the user specified directory for work plus the /spectral_maps/data/ folder
+	path = direct[0] + '/spectral_maps/data/'
+	# ObsID's get passed as a list
+	# Convert the ccd_id value to an intger and make a list as long as the obsID list ?? There may need to be different ccd_id's
+	onchip = []
+	chip_single = map(int, ccd)
+	single = chip_single[0]
+	for ID in obs:
+		onchip.append(single)
+	# Get the list of regions
+	regions = glob.glob('xaf_*.reg') # Get list of regions
+	# Call extract_contbin_spectra.py for each region. extract_contbin_spectra is set as alias extract
+	for reg in regions:
+		extract.generate_spectra(path,obs,onchip,reg)
 
 # Functions activators 6 #
 
-#region_list()
-#new_window()
-#spectral_create()
-#data_create(ordered_list)
-#regions_create()
+spectral_create()
+data_create(ordered_list)
+regions_create(directory)
+extract_spectra(directory, ordered_list, ccd_id)
 
 ###		###		###		###		###
 
 ###############################################################################################
+
+ ###	 ###
+### Xspec ###
+ ###	 ###
+
+ # Find way to pass commands to xspec and get data from NED
+ # get .tcl file
 
 ###############
 ##### END #####
