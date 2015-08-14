@@ -228,7 +228,7 @@ cp ../../{obsID ####}/repro/*asol*.fits .
 
 # Note: the first argument of the copy command is the location of the asol file in the obsid/repro folder.  The period at the end of the command copies it to the current directory /repro_bkg.  You can use /../ etc. to navigate like with the cd command.
 
-# Now we need to preset retroject_events with infile / outfile / aspect etc.  The aspects for each set are different so pay attention to what you are setting.
+# Now we need to preset reproject_events with infile / outfile / aspect etc.  The aspects for each set are different so pay attention to what you are setting.
 
 # 4948  -  aspect=pcadf213708142N003_asol1.fits
 # 4949  -  aspect=pcadf213932691N003_asol1.fits

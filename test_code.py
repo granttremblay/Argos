@@ -5,11 +5,10 @@ import numpy
 import os
 import sys
 import glob
-import pyfits
 import subprocess
 from astropy.io import fits
 from script_imports import extract_contbin_spectra_ARGOS as extract
-import xspec
+from astroquery.ned import Ned
 
 obsID_li = []
 
@@ -30,8 +29,31 @@ def obsID_selection():
 #quoted_list = obsID_selection()
 #ordered_list = sorted(quoted_list, key=lambda x: float(x))
 
+object_name = []
+
+def find_obj():
+
+	obj = raw_input("Enter object name (in quotes): ")
+	new_obj = obj.replace("'", "").replace("\"","") # Replaces the '' or "" in the user input to check to see if ciao ran an error
+	object_name.append(new_obj)
+
+find_obj()
+
 ##################
 ### New Things ###
 ##################
 
-print "imported"
+NED_data = []
+
+def redshift_finder(objname):
+
+	obj = objname[0]
+	main_table = Ned.query_object(obj)
+	redshift = main_table['Redshift'][0]
+	NED_data.append(redshift)
+	RA = main_table['RA(deg)'][0]
+	NED_data.append(RA)
+	DEC = main_table['DEC(deg)'][0]
+	NED_data.append(DEC)
+
+redshift_finder(object_name)

@@ -22,10 +22,10 @@ import numpy
 import os
 import sys
 import glob
-import pyfits
 import subprocess
 from astropy.io import fits
 from script_imports import extract_contbin_spectra_ARGOS as extract
+#import xspec
 
 ###		###		###		###		###
 
@@ -53,11 +53,14 @@ def mkdir():
 
 # Loop for finding obsID's #
 
+object_name = []
+
 def find_obj():
 
 	obj = raw_input("Enter object name (in quotes): ")
 	os.system('find_chandra_obsID '+obj)
 	new_obj = obj.replace("'", "").replace("\"","") # Replaces the '' or "" in the user input to check to see if ciao ran an error
+	object_name.append(new_obj)
 	ject = subprocess.Popen(['find_chandra_obsID', new_obj], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	stdout, stderr = ject.communicate()
 	if ject.returncode != 0: # If an error, subprocess return code is not 0, this will pass again
@@ -595,6 +598,7 @@ def reg_list_write():
 
 def extract_spectra(direct, obs, ccd):
 
+	# Heasoft should be launched before ciao
 	# Set "path" equal to the user specified directory for work plus the /spectral_maps/data/ folder
 	path = direct[0] + '/spectral_maps/data/'
 	# ObsID's get passed as a list
@@ -625,8 +629,28 @@ extract_spectra(directory, ordered_list, ccd_id)
 ### Xspec ###
  ###	 ###
 
- # Find way to pass commands to xspec and get data from NED
- # get .tcl file
+### Note: PyXspec works via "import xspec" on Linux but not on Mac for now ###
+
+ # Getting data from NASA Extragalactic Database #
+
+NED_data = []
+
+def redshift_finder(objname):
+
+	obj = objname[0]
+	main_table = Ned.query_object(obj)
+	redshift = main_table['Redshift'][0]
+	NED_data.append(redshift)
+	RA = main_table['RA(deg)'][0]
+	NED_data.append(RA)
+	DEC = main_table['DEC(deg)'][0]
+	NED_data.append(DEC)
+
+ # Pass the NED data to Xspec #
+
+ # Make .tcl script in python
+
+redshift_finder(object_name)
 
 ###############
 ##### END #####
